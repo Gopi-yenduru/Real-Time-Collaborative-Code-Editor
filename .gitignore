@@ -1,0 +1,40 @@
+# Backend
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# IDE
+*.iml
+.idea/
+*.swp
+*.swo
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Maven
+*.log
+build.log
+startup.log
+
+# Logs
+logs/
+*.log
+
+# Frontend (separate project inside)
+realtime-editor-frontend/node_modules/
+realtime-editor-frontend/dist/
+realtime-editor-frontend/frontend_start.log
+
+# Misc
+*.class
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+hs_err_pid*
