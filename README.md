@@ -74,10 +74,10 @@ A full-stack **real-time collaborative code editor** built with **Spring Boot 3*
 | Layer | Technology |
 |---|---|
 | Backend language | Java 17 (builds on JDK 17–24) |
-| Backend framework | Spring Boot 3.2, Spring Security, Spring WebSocket |
+| Backend framework | Spring Boot 3.5, Spring Security, Spring WebSocket |
 | Database | MySQL 8 (JPA / Hibernate) |
 | Cross-node relay | Redis 6+ |
-| Auth | JWT (jjwt 0.12.5) |
+| Auth | JWT (jjwt 0.13.0) |
 | API docs | springdoc-openapi (Swagger UI) |
 | Build | Maven |
 | Frontend framework | React 19 (Vite) |
