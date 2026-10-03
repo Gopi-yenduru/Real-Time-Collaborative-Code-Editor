@@ -34,6 +34,9 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
     public static final String ATTR_ROLE = "role";
     public static final String ATTR_CAN_EDIT = "canEdit";
 
+    /** The socket is registered at this prefix; the document id is the segment after it. */
+    private static final String PATH_PREFIX = "/ws/yjs/";
+
     private final JwtUtil jwtUtil;
     private final DocumentService documentService;
 
@@ -42,7 +45,7 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
                                    WebSocketHandler wsHandler, Map<String, Object> attributes) {
         URI uri = request.getURI();
 
-        String documentId = lastPathSegment(uri.getPath());
+        String documentId = documentIdFrom(uri.getPath());
         String token = queryParam(uri.getRawQuery(), "token");
 
         if (documentId == null || token == null || !jwtUtil.validate(token)) {
@@ -73,13 +76,25 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
         // no-op
     }
 
-    private static String lastPathSegment(String path) {
-        if (path == null || path.isBlank()) {
+    /**
+     * Extracts the document id from the path segment following {@code /ws/yjs/}.
+     * Returns {@code null} for any path that doesn't carry one, so a request to
+     * the bare prefix is rejected outright instead of being read as a document
+     * named after a path segment.
+     */
+    private static String documentIdFrom(String path) {
+        if (path == null) {
             return null;
         }
-        String trimmed = path.endsWith("/") ? path.substring(0, path.length() - 1) : path;
-        int slash = trimmed.lastIndexOf('/');
-        String segment = slash >= 0 ? trimmed.substring(slash + 1) : trimmed;
+        int prefix = path.indexOf(PATH_PREFIX);
+        if (prefix < 0) {
+            return null;
+        }
+        String segment = path.substring(prefix + PATH_PREFIX.length());
+        int slash = segment.indexOf('/');
+        if (slash >= 0) {
+            segment = segment.substring(0, slash);
+        }
         return segment.isBlank() ? null : segment;
     }
 
