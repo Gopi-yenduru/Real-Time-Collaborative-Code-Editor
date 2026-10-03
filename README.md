@@ -93,8 +93,8 @@ A full-stack **real-time collaborative code editor** built with **Spring Boot 3*
 
 - **JDK 17+** (tested on JDK 24) and **Maven 3.8+**
 - **Node.js 18+** and **npm 9+**
-- **MySQL 8.0+** (on `localhost:3306`)
-- **Redis 6+** (on `localhost:6379`)
+- **MySQL 8.0+** (on `localhost:3306`) and **Redis 6+** (on `localhost:6379`)
+  — or **Docker**, and let `compose.yaml` provide both (see step 3)
 
 ---
 
@@ -133,7 +133,20 @@ $env:JWT_SECRET="your-long-random-secret-key"
 | `JWT_EXPIRATION` | `86400000` | Token lifetime in ms (24h) |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000` | Allowed web origins |
 
-### 3. Run the backend
+### 3. Start MySQL and Redis
+
+With Docker, from the repository root:
+
+```bash
+docker compose up -d
+```
+
+That brings up both services on their default ports, with the database stored
+in a named volume. `docker compose down` stops them and keeps the data;
+`docker compose down -v` also wipes it. If you would rather use your own local
+installs, skip this step — the defaults already point at `localhost`.
+
+### 4. Run the backend
 
 ```bash
 mvn spring-boot:run
@@ -143,7 +156,7 @@ mvn spring-boot:run
 - Swagger UI: **http://localhost:8080/swagger-ui.html**
 - Health: **http://localhost:8080/actuator/health**
 
-### 4. Run the frontend
+### 5. Run the frontend
 
 ```bash
 cd realtime-editor-frontend
@@ -199,6 +212,10 @@ mvn test                      # backend unit tests (frame codec + relay orchestr
 - **API:** import `postman_collection.json`.
 - **WebSocket:** `websocket_test.sh` (proves the handshake authorizes).
 
+Every push and pull request runs the same checks on GitHub Actions
+(`.github/workflows/ci.yml`): `mvn verify` on JDK 17, 21 and 24, plus the
+frontend lint and production build.
+
 ### Try real-time collaboration
 1. Open **http://localhost:5173** in two browser windows.
 2. Register two accounts; create a document with the first.
@@ -236,6 +253,8 @@ Real-Time-Collaborative-Code-Editor/
 │       ├── lib/           # collab.js (provider) · monacoSetup.js · colors.js · bytes.js · api.js
 │       ├── pages/         # Login · Register · Dashboard · EditorPage
 │       └── store/         # authStore · editorStore
+├── compose.yaml           # MySQL + Redis for local development
+├── .github/workflows/     # CI: backend JDK matrix, frontend lint + build
 ├── postman_collection.json
 ├── websocket_test.sh
 └── README.md

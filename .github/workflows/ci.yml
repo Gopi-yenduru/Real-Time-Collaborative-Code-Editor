@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to the same branch supersedes an in-flight run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (JDK ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # The project targets 17; the upper bounds guard the README's claim that
+      # it builds on everything up to 24.
+      matrix:
+        java: ['17', '21', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+      - name: Build and test
+        run: mvn -B --no-transfer-progress verify
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: realtime-editor-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: realtime-editor-frontend/package-lock.json
+      # --legacy-peer-deps: Vite 8 sits outside the Tailwind plugin's declared
+      # peer range. Matches the install step documented in the README.
+      - name: Install
+        run: npm ci --legacy-peer-deps
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build

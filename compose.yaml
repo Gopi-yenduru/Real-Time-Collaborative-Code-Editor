@@ -1,0 +1,47 @@
+# ---------------------------------------------------------------------------
+# Backing services for local development.
+#
+#   docker compose up -d       start MySQL + Redis
+#   docker compose down        stop them (data survives in the named volume)
+#   docker compose down -v     stop them and wipe the database
+#
+# The application itself runs on the host (`mvn spring-boot:run`), so it picks
+# up these services through the defaults in application.properties. Only the
+# database password needs to agree — set DB_PASSWORD in your environment, or
+# accept the dev default below.
+# ---------------------------------------------------------------------------
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: code-editor-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-devpassword}
+      MYSQL_DATABASE: ${DB_NAME:-code_editor}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${DB_PASSWORD:-devpassword}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: code-editor-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    # Collaboration frames are relayed, never stored, so persistence is off.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  mysql-data:
