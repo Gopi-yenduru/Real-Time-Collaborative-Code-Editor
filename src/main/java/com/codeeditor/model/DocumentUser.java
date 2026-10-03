@@ -22,7 +22,10 @@ public class DocumentUser {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @MapsId("documentId")
-    @JoinColumn(name = "document_id")
+    // @JoinColumn has no length attribute, so without columnDefinition Hibernate
+    // maps this as varchar(255) and tries to widen the column on every startup —
+    // which MySQL refuses while a foreign key references it.
+    @JoinColumn(name = "document_id", columnDefinition = "varchar(36)")
     @OnDelete(action = OnDeleteAction.CASCADE)
     private Document document;
 

@@ -14,7 +14,10 @@ import java.io.Serializable;
 @AllArgsConstructor
 public class DocumentUserId implements Serializable {
 
-    @Column(name = "document_id")
+    // Length must match Document.id (36). Note that under @MapsId it is the
+    // association's @JoinColumn in DocumentUser that actually defines the
+    // column, so the width is declared there too.
+    @Column(name = "document_id", length = 36)
     private String documentId;
 
     @Column(name = "user_id")

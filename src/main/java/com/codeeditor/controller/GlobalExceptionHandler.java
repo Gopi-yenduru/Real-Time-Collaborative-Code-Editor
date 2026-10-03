@@ -10,9 +10,12 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -60,6 +63,21 @@ public class GlobalExceptionHandler {
         ResponseEntity<Map<String, Object>> base = body(HttpStatus.BAD_REQUEST, "Validation failed");
         base.getBody().put("fieldErrors", fieldErrors);
         return base;
+    }
+
+    /**
+     * An unmatched URL reaches the static-resource handler, which raises
+     * {@link NoResourceFoundException}. Without this it fell through to the
+     * catch-all below and a mistyped endpoint answered 500 instead of 404.
+     */
+    @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
+    public ResponseEntity<Map<String, Object>> handleNoHandler(Exception ex) {
+        return body(HttpStatus.NOT_FOUND, "No endpoint matches this request");
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<Map<String, Object>> handleMethodNotAllowed(HttpRequestMethodNotSupportedException ex) {
+        return body(HttpStatus.METHOD_NOT_ALLOWED, ex.getMessage());
     }
 
     @ExceptionHandler(Exception.class)
