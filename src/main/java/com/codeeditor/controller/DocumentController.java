@@ -1,76 +1,72 @@
 package com.codeeditor.controller;
 
-import com.codeeditor.model.Document;
-import com.codeeditor.model.Role;
+import com.codeeditor.dto.DocumentDto;
+import com.codeeditor.dto.DocumentRequests.CreateDocument;
+import com.codeeditor.dto.DocumentRequests.ShareDocument;
+import com.codeeditor.dto.DocumentRequests.UpdateContent;
 import com.codeeditor.security.UserDetailsImpl;
 import com.codeeditor.service.DocumentService;
-import lombok.Data;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
+import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/documents")
 @RequiredArgsConstructor
+@Tag(name = "Documents", description = "Create, list, share, and mirror collaborative documents")
 public class DocumentController {
 
     private final DocumentService documentService;
 
     @GetMapping
-    public ResponseEntity<?> getDocuments(@AuthenticationPrincipal UserDetailsImpl userDetails) {
-        return ResponseEntity.ok(documentService.getUserDocuments(userDetails.getId()));
+    @Operation(summary = "List documents the current user can access")
+    public List<DocumentDto> list(@AuthenticationPrincipal UserDetailsImpl user) {
+        return documentService.listForUser(user.getId());
     }
 
     @PostMapping
-    public ResponseEntity<Document> createDocument(
-            @Valid @RequestBody CreateDocumentRequest request,
-            @AuthenticationPrincipal UserDetailsImpl userDetails) {
-        
-        Document document = documentService.createDocument(
-                request.getTitle(),
-                request.getLanguage(),
-                userDetails.getId()
-        );
-        return ResponseEntity.ok(document);
+    @Operation(summary = "Create a new document (caller becomes owner)")
+    public ResponseEntity<DocumentDto> create(@Valid @RequestBody CreateDocument request,
+                                              @AuthenticationPrincipal UserDetailsImpl user) {
+        DocumentDto dto = documentService.create(request.title(), request.language(), user.getId());
+        return ResponseEntity.status(201).body(dto);
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Document> getDocument(@PathVariable String id) {
-        return ResponseEntity.ok(documentService.getDocument(id));
+    @Operation(summary = "Fetch a single document (access-checked, includes content)")
+    public DocumentDto get(@PathVariable String id, @AuthenticationPrincipal UserDetailsImpl user) {
+        return documentService.getForUser(id, user.getId());
     }
 
     @PostMapping("/{id}/share")
-    public ResponseEntity<?> shareDocument(
-            @PathVariable String id,
-            @Valid @RequestBody ShareDocumentRequest request,
-            @AuthenticationPrincipal UserDetailsImpl userDetails) {
-        
-        try {
-            documentService.shareDocument(id, request.getEmail(), request.getRole(), userDetails.getId());
-            return ResponseEntity.ok(Map.of("message", "Document shared successfully"));
-        } catch (IllegalStateException e) {
-            return ResponseEntity.status(403).body(Map.of("message", e.getMessage()));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
-        }
+    @Operation(summary = "Grant another user EDITOR or VIEWER access (owner only)")
+    public ResponseEntity<Map<String, String>> share(@PathVariable String id,
+                                                      @Valid @RequestBody ShareDocument request,
+                                                      @AuthenticationPrincipal UserDetailsImpl user) {
+        documentService.share(id, request.email(), request.role(), user.getId());
+        return ResponseEntity.ok(Map.of("message", "Document shared with " + request.email()));
     }
 
-    @Data
-    public static class CreateDocumentRequest {
-        @NotBlank
-        private String title;
-        private String language;
+    @PutMapping("/{id}/content")
+    @Operation(summary = "Update the plain-text mirror of a document (editors only)")
+    public ResponseEntity<Void> updateContent(@PathVariable String id,
+                                              @Valid @RequestBody UpdateContent request,
+                                              @AuthenticationPrincipal UserDetailsImpl user) {
+        documentService.updateContent(id, user.getId(), request.content());
+        return ResponseEntity.noContent().build();
     }
 
-    @Data
-    public static class ShareDocumentRequest {
-        @NotBlank
-        private String email;
-        private Role role;
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Delete a document (owner only)")
+    public ResponseEntity<Void> delete(@PathVariable String id, @AuthenticationPrincipal UserDetailsImpl user) {
+        documentService.delete(id, user.getId());
+        return ResponseEntity.noContent().build();
     }
 }

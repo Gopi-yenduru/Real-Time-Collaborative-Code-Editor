@@ -1,12 +1,9 @@
 package com.codeeditor.service;
 
-import com.codeeditor.engine.OTEngine;
-import com.codeeditor.engine.Operation;
-import com.codeeditor.model.Document;
-import com.codeeditor.model.DocumentUser;
-import com.codeeditor.model.DocumentUserId;
-import com.codeeditor.model.Role;
-import com.codeeditor.model.User;
+import com.codeeditor.dto.DocumentDto;
+import com.codeeditor.exception.ForbiddenException;
+import com.codeeditor.exception.NotFoundException;
+import com.codeeditor.model.*;
 import com.codeeditor.repository.DocumentRepository;
 import com.codeeditor.repository.DocumentUserRepository;
 import com.codeeditor.repository.UserRepository;
@@ -14,7 +11,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -23,81 +22,115 @@ public class DocumentService {
     private final DocumentRepository documentRepository;
     private final DocumentUserRepository documentUserRepository;
     private final UserRepository userRepository;
-    private final OTEngine otEngine;
+
+    // ----- Reads -------------------------------------------------------------
+
+    public Document getEntity(String documentId) {
+        return documentRepository.findById(documentId)
+                .orElseThrow(() -> new NotFoundException("Document not found"));
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Role> roleOf(String documentId, Long userId) {
+        return documentUserRepository.findByIdDocumentIdAndIdUserId(documentId, userId)
+                .map(DocumentUser::getRole);
+    }
+
+    /** Returns the caller's role, or throws 403 if they have no access. */
+    public Role requireAccess(String documentId, Long userId) {
+        return roleOf(documentId, userId)
+                .orElseThrow(() -> new ForbiddenException("You do not have access to this document"));
+    }
+
+    /** Ensures the caller may edit (OWNER or EDITOR), else throws 403. */
+    public Role requireEditAccess(String documentId, Long userId) {
+        Role role = requireAccess(documentId, userId);
+        if (role == Role.VIEWER) {
+            throw new ForbiddenException("You have read-only access to this document");
+        }
+        return role;
+    }
+
+    public boolean canEdit(String documentId, Long userId) {
+        return roleOf(documentId, userId).map(r -> r != Role.VIEWER).orElse(false);
+    }
+
+    @Transactional(readOnly = true)
+    public List<DocumentDto> listForUser(Long userId) {
+        return documentUserRepository.findByIdUserId(userId).stream()
+                .map(du -> DocumentDto.summary(du.getDocument(), du.getRole()))
+                .sorted(Comparator.comparing(DocumentDto::updatedAt,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public DocumentDto getForUser(String documentId, Long userId) {
+        Role role = requireAccess(documentId, userId);
+        return DocumentDto.detail(getEntity(documentId), role);
+    }
+
+    // ----- Writes ------------------------------------------------------------
 
     @Transactional
-    public Document createDocument(String title, String language, Long ownerId) {
+    public DocumentDto create(String title, String language, Long ownerId) {
         User owner = userRepository.findById(ownerId)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+                .orElseThrow(() -> new NotFoundException("User not found"));
 
-        Document document = Document.builder()
+        Document document = documentRepository.save(Document.builder()
                 .title(title)
-                .language(language != null ? language : "plaintext")
+                .language(language != null && !language.isBlank() ? language : "plaintext")
                 .content("")
                 .owner(owner)
-                .build();
+                .build());
 
-        document = documentRepository.save(document);
-
-        // Add owner to document_users
-        DocumentUser documentUser = DocumentUser.builder()
+        documentUserRepository.save(DocumentUser.builder()
                 .id(new DocumentUserId(document.getId(), ownerId))
                 .document(document)
                 .user(owner)
                 .role(Role.OWNER)
-                .build();
+                .build());
 
-        documentUserRepository.save(documentUser);
-
-        return document;
-    }
-
-    public Document getDocument(String documentId) {
-        return documentRepository.findById(documentId)
-                .orElseThrow(() -> new IllegalArgumentException("Document not found"));
-    }
-    
-    public List<DocumentUser> getUserDocuments(Long userId) {
-        return documentUserRepository.findByUserId(userId);
+        return DocumentDto.detail(document, Role.OWNER);
     }
 
     @Transactional
-    public void shareDocument(String documentId, String email, Role role, Long requesterId) {
-        Document document = getDocument(documentId);
+    public void share(String documentId, String email, Role role, Long requesterId) {
+        Document document = getEntity(documentId);
 
-        // Check if requester is OWNER
         if (!document.getOwner().getId().equals(requesterId)) {
-            throw new IllegalStateException("Only the owner can share this document");
+            throw new ForbiddenException("Only the owner can share this document");
+        }
+        if (role == null || role == Role.OWNER) {
+            throw new IllegalArgumentException("Role must be EDITOR or VIEWER");
         }
 
-        User targetUser = userRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalArgumentException("User with email not found"));
+        User target = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NotFoundException("No user found with email " + email));
 
-        DocumentUser documentUser = DocumentUser.builder()
-                .id(new DocumentUserId(document.getId(), targetUser.getId()))
+        documentUserRepository.save(DocumentUser.builder()
+                .id(new DocumentUserId(documentId, target.getId()))
                 .document(document)
-                .user(targetUser)
+                .user(target)
                 .role(role)
-                .build();
+                .build());
+    }
 
-        documentUserRepository.save(documentUser);
+    /** Persists the debounced plain-text mirror used for previews/search. */
+    @Transactional
+    public void updateContent(String documentId, Long userId, String content) {
+        requireEditAccess(documentId, userId);
+        Document document = getEntity(documentId);
+        document.setContent(content);
+        documentRepository.save(document);
     }
 
     @Transactional
-    public void applyOperationToDocument(String documentId, Operation operation) {
-        Document document = getDocument(documentId);
-        String currentContent = document.getContent();
-        
-        String newContent = otEngine.apply(currentContent, operation);
-        document.setContent(newContent);
-        
-        documentRepository.save(document);
-    }
-    
-    @Transactional
-    public void updateDocumentContent(String documentId, String newContent) {
-        Document document = getDocument(documentId);
-        document.setContent(newContent);
-        documentRepository.save(document);
+    public void delete(String documentId, Long userId) {
+        Document document = getEntity(documentId);
+        if (!document.getOwner().getId().equals(userId)) {
+            throw new ForbiddenException("Only the owner can delete this document");
+        }
+        documentRepository.delete(document);
     }
 }

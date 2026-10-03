@@ -9,12 +9,7 @@
 			"name": "1. Register",
 			"request": {
 				"method": "POST",
-				"header": [
-					{
-						"key": "Content-Type",
-						"value": "application/json"
-					}
-				],
+				"header": [{ "key": "Content-Type", "value": "application/json" }],
 				"body": {
 					"mode": "raw",
 					"raw": "{\n    \"username\": \"testuser1\",\n    \"email\": \"test1@example.com\",\n    \"password\": \"password\"\n}"
@@ -22,15 +17,9 @@
 				"url": {
 					"raw": "http://localhost:8080/api/auth/register",
 					"protocol": "http",
-					"host": [
-						"localhost"
-					],
+					"host": ["localhost"],
 					"port": "8080",
-					"path": [
-						"api",
-						"auth",
-						"register"
-					]
+					"path": ["api", "auth", "register"]
 				}
 			}
 		},
@@ -42,7 +31,8 @@
 					"script": {
 						"exec": [
 							"var jsonData = pm.response.json();",
-							"pm.environment.set(\"jwt_token\", jsonData.token);"
+							"pm.environment.set(\"jwt_token\", jsonData.token);",
+							"pm.environment.set(\"user_id\", jsonData.user.id);"
 						],
 						"type": "text/javascript"
 					}
@@ -50,12 +40,7 @@
 			],
 			"request": {
 				"method": "POST",
-				"header": [
-					{
-						"key": "Content-Type",
-						"value": "application/json"
-					}
-				],
+				"header": [{ "key": "Content-Type", "value": "application/json" }],
 				"body": {
 					"mode": "raw",
 					"raw": "{\n    \"username\": \"testuser1\",\n    \"password\": \"password\"\n}"
@@ -63,20 +48,28 @@
 				"url": {
 					"raw": "http://localhost:8080/api/auth/login",
 					"protocol": "http",
-					"host": [
-						"localhost"
-					],
+					"host": ["localhost"],
 					"port": "8080",
-					"path": [
-						"api",
-						"auth",
-						"login"
-					]
+					"path": ["api", "auth", "login"]
 				}
 			}
 		},
 		{
-			"name": "3. Create Document",
+			"name": "3. Current User (me)",
+			"request": {
+				"method": "GET",
+				"header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}" }],
+				"url": {
+					"raw": "http://localhost:8080/api/auth/me",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8080",
+					"path": ["api", "auth", "me"]
+				}
+			}
+		},
+		{
+			"name": "4. Create Document",
 			"event": [
 				{
 					"listen": "test",
@@ -92,14 +85,8 @@
 			"request": {
 				"method": "POST",
 				"header": [
-					{
-						"key": "Content-Type",
-						"value": "application/json"
-					},
-					{
-						"key": "Authorization",
-						"value": "Bearer {{jwt_token}}"
-					}
+					{ "key": "Content-Type", "value": "application/json" },
+					{ "key": "Authorization", "value": "Bearer {{jwt_token}}" }
 				],
 				"body": {
 					"mode": "raw",
@@ -108,55 +95,68 @@
 				"url": {
 					"raw": "http://localhost:8080/api/documents",
 					"protocol": "http",
-					"host": [
-						"localhost"
-					],
+					"host": ["localhost"],
 					"port": "8080",
-					"path": [
-						"api",
-						"documents"
-					]
+					"path": ["api", "documents"]
 				}
 			}
 		},
 		{
-			"name": "4. Get Document",
+			"name": "5. List Documents",
 			"request": {
 				"method": "GET",
-				"header": [
-					{
-						"key": "Authorization",
-						"value": "Bearer {{jwt_token}}"
-					}
-				],
+				"header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}" }],
+				"url": {
+					"raw": "http://localhost:8080/api/documents",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8080",
+					"path": ["api", "documents"]
+				}
+			}
+		},
+		{
+			"name": "6. Get Document",
+			"request": {
+				"method": "GET",
+				"header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}" }],
 				"url": {
 					"raw": "http://localhost:8080/api/documents/{{doc_id}}",
 					"protocol": "http",
-					"host": [
-						"localhost"
-					],
+					"host": ["localhost"],
 					"port": "8080",
-					"path": [
-						"api",
-						"documents",
-						"{{doc_id}}"
-					]
+					"path": ["api", "documents", "{{doc_id}}"]
 				}
 			}
 		},
 		{
-			"name": "5. Share Document",
+			"name": "7. Update Content (mirror)",
+			"request": {
+				"method": "PUT",
+				"header": [
+					{ "key": "Content-Type", "value": "application/json" },
+					{ "key": "Authorization", "value": "Bearer {{jwt_token}}" }
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"content\": \"System.out.println(\\\"hello\\\");\"\n}"
+				},
+				"url": {
+					"raw": "http://localhost:8080/api/documents/{{doc_id}}/content",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8080",
+					"path": ["api", "documents", "{{doc_id}}", "content"]
+				}
+			}
+		},
+		{
+			"name": "8. Share Document",
 			"request": {
 				"method": "POST",
 				"header": [
-					{
-						"key": "Content-Type",
-						"value": "application/json"
-					},
-					{
-						"key": "Authorization",
-						"value": "Bearer {{jwt_token}}"
-					}
+					{ "key": "Content-Type", "value": "application/json" },
+					{ "key": "Authorization", "value": "Bearer {{jwt_token}}" }
 				],
 				"body": {
 					"mode": "raw",
@@ -165,79 +165,74 @@
 				"url": {
 					"raw": "http://localhost:8080/api/documents/{{doc_id}}/share",
 					"protocol": "http",
-					"host": [
-						"localhost"
-					],
+					"host": ["localhost"],
 					"port": "8080",
-					"path": [
-						"api",
-						"documents",
-						"{{doc_id}}",
-						"share"
-					]
+					"path": ["api", "documents", "{{doc_id}}", "share"]
 				}
 			}
 		},
 		{
-			"name": "6. Get Revisions",
+			"name": "9. List Versions (snapshots)",
 			"request": {
 				"method": "GET",
-				"header": [
-					{
-						"key": "Authorization",
-						"value": "Bearer {{jwt_token}}"
-					}
-				],
+				"header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}" }],
 				"url": {
-					"raw": "http://localhost:8080/api/documents/{{doc_id}}/revisions?page=0&size=20",
+					"raw": "http://localhost:8080/api/documents/{{doc_id}}/snapshots?page=0&size=20",
 					"protocol": "http",
-					"host": [
-						"localhost"
-					],
+					"host": ["localhost"],
 					"port": "8080",
-					"path": [
-						"api",
-						"documents",
-						"{{doc_id}}",
-						"revisions"
-					],
+					"path": ["api", "documents", "{{doc_id}}", "snapshots"],
 					"query": [
-						{
-							"key": "page",
-							"value": "0"
-						},
-						{
-							"key": "size",
-							"value": "20"
-						}
+						{ "key": "page", "value": "0" },
+						{ "key": "size", "value": "20" }
 					]
 				}
 			}
 		},
 		{
-			"name": "7. Restore Revision",
+			"name": "10. Create Version (snapshot)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"var jsonData = pm.response.json();",
+							"pm.environment.set(\"snapshot_id\", jsonData.id);"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
 			"request": {
 				"method": "POST",
 				"header": [
-					{
-						"key": "Authorization",
-						"value": "Bearer {{jwt_token}}"
-					}
+					{ "key": "Content-Type", "value": "application/json" },
+					{ "key": "Authorization", "value": "Bearer {{jwt_token}}" }
 				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"label\": \"Checkpoint\",\n    \"state\": \"AAA=\",\n    \"content\": \"snapshot text\"\n}"
+				},
 				"url": {
-					"raw": "http://localhost:8080/api/documents/{{doc_id}}/restore/5",
+					"raw": "http://localhost:8080/api/documents/{{doc_id}}/snapshots",
 					"protocol": "http",
-					"host": [
-						"localhost"
-					],
+					"host": ["localhost"],
 					"port": "8080",
-					"path": [
-						"api",
-						"documents",
-						"{{doc_id}}",
-						"restore",
-						"5"
-					]
+					"path": ["api", "documents", "{{doc_id}}", "snapshots"]
+				}
+			}
+		},
+		{
+			"name": "11. Restore Version",
+			"request": {
+				"method": "POST",
+				"header": [{ "key": "Authorization", "value": "Bearer {{jwt_token}}" }],
+				"url": {
+					"raw": "http://localhost:8080/api/documents/{{doc_id}}/snapshots/{{snapshot_id}}/restore",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8080",
+					"path": ["api", "documents", "{{doc_id}}", "snapshots", "{{snapshot_id}}", "restore"]
 				}
 			}
 		}

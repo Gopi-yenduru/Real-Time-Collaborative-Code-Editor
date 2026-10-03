@@ -1,60 +1,71 @@
 # ⚡ Real-Time Collaborative Code Editor
 
-A full-stack, production-quality **real-time collaborative code editor** built with **Spring Boot 3.x** (Backend) and **React + Vite** (Frontend). Multiple users can edit the same document simultaneously with live cursor tracking, conflict resolution via Operational Transformation, and instant syncing over WebSockets.
+A full-stack **real-time collaborative code editor** built with **Spring Boot 3** (backend) and **React + Vite** (frontend). Multiple people edit the same document at once — like Google Docs for code — with live cursors, presence, and conflict-free merging powered by **CRDTs (Yjs)**.
+
+> **v2 — CRDT rewrite.** The original hand-rolled Operational Transformation engine has been replaced with **Yjs**, an industry-proven CRDT. Concurrent edits now converge deterministically, remote cursors and selections render natively, and the whole system tolerates reconnects and offline edits. The Spring Boot backend acts as a **persistent relay** — it stores and forwards opaque CRDT updates without ever having to reason about merge conflicts.
 
 ---
 
 ## 🏗️ Architecture
 
 ```text
-┌─────────────┐     HTTP/JWT     ┌───────────────────────────────────┐
-│  React App  │ ───────────────► │       REST Controllers            │
-│  (Vite +    │                  │  (Auth, Documents, Revisions)     │
-│   Monaco)   │                  └───────────────────────────────────┘
-│             │                                    │
-│             │     WS/STOMP                       ▼
-│             │ ◄──────────────► ┌───────────────────────────────────┐
-└─────────────┘                  │  EditorWebSocketHandler           │
-                                 │  (Ops, Cursors, Presence)         │
-                                 └───────────────────────────────────┘
-                                                   │
-                                                   ▼
-                                 ┌───────────────────────────────────┐
-                                 │     OT Engine (Transform & Apply) │
-                                 └───────────────────────────────────┘
-                                                   │
-                          ┌────────────────────────┼────────────────────────┐
-                          ▼                                                 ▼
-               ┌──────────────────┐                          ┌──────────────────────┐
-               │   Redis (Pub/Sub │                          │  MySQL (Users, Docs, │
-               │   + Sessions)    │                          │  Revisions)          │
-               └──────────────────┘                          └──────────────────────┘
+┌─────────────┐   HTTP / JWT    ┌────────────────────────────────────────┐
+│  React App  │ ───────────────►│  REST Controllers                      │
+│  (Vite +    │                 │  Auth · Documents · Snapshots (history)│
+│   Monaco +  │                 └────────────────────────────────────────┘
+│   Yjs)      │                                   │
+│             │  Binary WS       ┌────────────────────────────────────────┐
+│             │◄───────────────►│  YjsWebSocketHandler (native, binary)   │
+│  y-monaco   │  (Yjs frames)    │  handshake auth · SYNC/AWARENESS relay  │
+└─────────────┘                 └────────────────────────────────────────┘
+                                                  │
+                        ┌─────────────────────────┼──────────────────────────┐
+                        ▼                                                     ▼
+             ┌────────────────────┐                         ┌──────────────────────────┐
+             │  Redis Pub/Sub     │                         │  MySQL                    │
+             │  (cross-node relay)│                         │  users · documents ·      │
+             └────────────────────┘                         │  document_users ·         │
+                                                            │  document_updates (CRDT log)│
+                                                            │  document_snapshots (history)│
+                                                            └──────────────────────────┘
 ```
+
+### How real-time sync works
+
+1. Each client holds a **Yjs document**. Every keystroke produces a compact binary **update**.
+2. Updates travel over a **native binary WebSocket** (`/ws/yjs/{docId}`) as `[type byte][payload]` frames.
+3. The server treats updates as **opaque bytes**: it appends them to a per-document log and fans them out to everyone else (locally, and across nodes via **Redis**).
+4. A joining client sends `SYNC_REQUEST`; the server **replays the log**. Because Yjs updates are commutative and idempotent, replay in any order reconstructs the exact same document for everyone — no merge logic on the server.
+5. **Cursors & presence** ride Yjs *awareness* (relayed, never stored). **`y-monaco`** renders each remote user's caret and selection automatically.
+6. The log is periodically **compacted** into one merged update (`SNAPSHOT`), and a plain-text mirror is saved for previews/search.
 
 ---
 
 ## ✨ Features
 
-### Backend (Java 17 / Spring Boot 3.x)
+### Backend (Java 17 / Spring Boot 3)
 | Feature | Description |
 |---|---|
-| **JWT Authentication** | Stateless token-based auth for REST & WebSocket endpoints |
-| **OT Engine** | Custom Operational Transformation handling 6 core conflict scenarios |
-| **STOMP WebSockets** | Topic-based real-time messaging for ops, cursors & presence |
-| **Redis Pub/Sub** | Multi-instance broadcasting for horizontal scaling |
-| **Revision History** | Every operation stored with author + timestamp; point-in-time restore |
-| **Session Manager** | Per-document user tracking in Redis with color assignment |
-| **Role-Based Access** | OWNER / EDITOR / VIEWER roles per document |
+| **CRDT relay** | Stores & forwards opaque Yjs updates — convergence guaranteed by the CRDT, not the server |
+| **Native binary WebSocket** | Compact `[type][payload]` frames; auth + document access enforced at the handshake |
+| **Redis Pub/Sub** | Relays frames between instances for horizontal scaling |
+| **Append-only update log + compaction** | Durable history, bounded by client-driven snapshots |
+| **Version history** | Named snapshots (merged CRDT state + text) with one-click restore for all clients |
+| **Role-based access** | OWNER / EDITOR / VIEWER enforced on REST **and** the WebSocket |
+| **JWT auth** | Stateless tokens; claims carry the user id to avoid per-request lookups |
+| **OpenAPI / Swagger UI** | Interactive API docs with a JWT "Authorize" button |
+| **Consistent error envelope + actuator health** | Clean 4xx/5xx JSON and a `/actuator/health` probe |
 
-### Frontend (React / Vite / Tailwind CSS)
+### Frontend (React 19 / Vite / Tailwind CSS)
 | Feature | Description |
 |---|---|
-| **Monaco Editor** | VS Code's editor engine for a native coding experience |
-| **Live Collaboration** | Real-time text sync via STOMP WebSocket |
-| **Remote Cursors** | Color-coded cursor decorations for each connected user |
-| **Presence Bar** | Shows who is online in each document session |
-| **Glassmorphism UI** | Premium dark theme with gradients and micro-animations |
-| **Dashboard** | Document grid view, creation modal, and search |
+| **Monaco Editor** | VS Code's editor engine, bundled locally (no CDN) |
+| **Yjs + y-monaco** | Conflict-free editing with native remote cursors & selections |
+| **Custom WebSocket provider** | ~200 lines, speaks the server's binary protocol, auto-reconnects & flushes offline edits |
+| **Presence** | Deterministic per-user colors, live collaborator avatars |
+| **Version history UI** | Save & restore named versions from the editor |
+| **Sharing** | Invite collaborators as editor or viewer |
+| **Glassmorphism UI** | Dark theme with gradients and micro-animations |
 
 ---
 
@@ -62,16 +73,17 @@ A full-stack, production-quality **real-time collaborative code editor** built w
 
 | Layer | Technology |
 |---|---|
-| Backend Language | Java 17 |
-| Backend Framework | Spring Boot 3.x, Spring Security, Spring WebSocket |
-| Database | MySQL 8 (JPA/Hibernate) |
-| Cache / Pub-Sub | Redis 6+ |
+| Backend language | Java 17 (builds on JDK 17–24) |
+| Backend framework | Spring Boot 3.2, Spring Security, Spring WebSocket |
+| Database | MySQL 8 (JPA / Hibernate) |
+| Cross-node relay | Redis 6+ |
 | Auth | JWT (jjwt 0.12.5) |
+| API docs | springdoc-openapi (Swagger UI) |
 | Build | Maven |
-| Frontend Framework | React 18 (Vite 8) |
-| Code Editor | Monaco Editor (`@monaco-editor/react`) |
-| State Management | Zustand |
-| WebSocket Client | `@stomp/stompjs` + `sockjs-client` |
+| Frontend framework | React 19 (Vite) |
+| Realtime engine | **Yjs**, **y-monaco**, **y-protocols** (awareness) |
+| Code editor | Monaco Editor (`@monaco-editor/react`, bundled) |
+| State management | Zustand |
 | Styling | Tailwind CSS 4 |
 | Icons | Lucide React |
 
@@ -79,126 +91,119 @@ A full-stack, production-quality **real-time collaborative code editor** built w
 
 ## 📋 Prerequisites
 
-- **Java 17+** and **Maven 3.8+**
+- **JDK 17+** (tested on JDK 24) and **Maven 3.8+**
 - **Node.js 18+** and **npm 9+**
-- **MySQL 8.0+** (running on `localhost:3306`)
-- **Redis 6+** (running on `localhost:6379`)
+- **MySQL 8.0+** (on `localhost:3306`)
+- **Redis 6+** (on `localhost:6379`)
 
 ---
 
 ## 🚀 Getting Started
 
-### 1. Clone the Repository
+### 1. Clone
 
 ```bash
 git clone https://github.com/Gopi-yenduru/Real-Time-Collaborative-Code-Editor.git
 cd Real-Time-Collaborative-Code-Editor
 ```
 
-### 2. Configure Environment Variables
+### 2. Configure environment
 
-The app reads credentials from environment variables with safe defaults. Set them before starting:
+Defaults suit local dev (see `.env.example`). Override before starting:
 
 ```bash
 # Linux / macOS
 export DB_PASSWORD=your_mysql_password
-export DB_USERNAME=root
 export JWT_SECRET=your-long-random-secret-key
+```
 
+```powershell
 # Windows (PowerShell)
 $env:DB_PASSWORD="your_mysql_password"
-$env:DB_USERNAME="root"
 $env:JWT_SECRET="your-long-random-secret-key"
 ```
 
 | Variable | Default | Description |
 |---|---|---|
-| `DB_HOST` | `localhost` | MySQL host |
-| `DB_PORT` | `3306` | MySQL port |
-| `DB_NAME` | `code_editor` | Database name (auto-created) |
-| `DB_USERNAME` | `root` | MySQL username |
-| `DB_PASSWORD` | *(empty)* | MySQL password |
-| `REDIS_HOST` | `localhost` | Redis host |
-| `REDIS_PORT` | `6379` | Redis port |
-| `JWT_SECRET` | `changeme...` | JWT signing secret |
-| `JWT_EXPIRATION` | `86400000` | Token lifetime (ms) — default 24h |
+| `DB_HOST` / `DB_PORT` | `localhost` / `3306` | MySQL host/port |
+| `DB_NAME` | `code_editor` | Database (auto-created) |
+| `DB_USERNAME` / `DB_PASSWORD` | `root` / *(empty)* | MySQL credentials |
+| `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` | Redis host/port |
+| `JWT_SECRET` | `changeme...` | Signing key (≥32 chars, or Base64 256-bit) |
+| `JWT_EXPIRATION` | `86400000` | Token lifetime in ms (24h) |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000` | Allowed web origins |
 
-### 3. Start the Backend
+### 3. Run the backend
 
 ```bash
-mvn clean install
 mvn spring-boot:run
 ```
 
-Backend will be available at **http://localhost:8080**
+- API: **http://localhost:8080**
+- Swagger UI: **http://localhost:8080/swagger-ui.html**
+- Health: **http://localhost:8080/actuator/health**
 
-### 4. Start the Frontend
+### 4. Run the frontend
 
 ```bash
 cd realtime-editor-frontend
-npm install
+npm install --legacy-peer-deps
 npm run dev
 ```
 
-Frontend will be available at **http://localhost:5173**
+Frontend: **http://localhost:5173**
+
+> `--legacy-peer-deps` sidesteps a peer-range mismatch between Vite and the Tailwind Vite plugin.
 
 ---
 
-## 📡 API Endpoints
+## 📡 API & WebSocket
 
-### Authentication
+### REST
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/api/auth/register` | Register a new user |
-| `POST` | `/api/auth/login` | Login and receive JWT token |
+| `POST` | `/api/auth/login` | Log in → `{ token, expiresInMs, user }` |
+| `GET` | `/api/auth/me` | Current authenticated user |
+| `GET` | `/api/documents` | List documents you can access (with your role) |
+| `POST` | `/api/documents` | Create a document |
+| `GET` | `/api/documents/{id}` | Get a document (access-checked, includes content) |
+| `PUT` | `/api/documents/{id}/content` | Update the plain-text mirror (editors) |
+| `POST` | `/api/documents/{id}/share` | Share as EDITOR/VIEWER (owner) |
+| `DELETE` | `/api/documents/{id}` | Delete a document (owner) |
+| `GET` | `/api/documents/{id}/snapshots` | List saved versions |
+| `POST` | `/api/documents/{id}/snapshots` | Save the current version |
+| `POST` | `/api/documents/{id}/snapshots/{sid}/restore` | Restore a version (resets all clients) |
 
-### Documents
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/documents` | List all documents for logged-in user |
-| `POST` | `/api/documents` | Create a new document |
-| `GET` | `/api/documents/{id}` | Get document by ID |
-| `POST` | `/api/documents/{id}/share` | Share document with another user |
+### WebSocket (native binary)
 
-### Revisions
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/revisions/{docId}` | Get revision history for a document |
-| `POST` | `/api/revisions/{docId}/restore/{revisionNumber}` | Restore document to a specific revision |
+Connect to `ws://localhost:8080/ws/yjs/{documentId}?token={JWT}`. Auth and access are verified during the handshake. Each frame is `[1 type byte][payload]`:
 
-### WebSocket (STOMP)
-| Endpoint | Type | Description |
-|---|---|---|
-| `/ws/editor` | Connect | SockJS WebSocket handshake URL |
-| `/app/editor/join` | Send | Join a document editing session |
-| `/app/editor/operation` | Send | Send an edit operation (INSERT/DELETE) |
-| `/app/editor/cursor` | Send | Broadcast cursor position |
-| `/topic/document/{docId}` | Subscribe | Receive real-time operations |
-| `/topic/presence/{docId}` | Subscribe | User join/leave notifications |
-| `/topic/cursors/{docId}` | Subscribe | Remote cursor position updates |
+| Type | Name | Direction | Payload |
+|---|---|---|---|
+| `0` | `SYNC` | both | Yjs document update |
+| `1` | `AWARENESS` | both | Cursor / presence update |
+| `2` | `SYNC_REQUEST` | client → server | *(empty)* — request history replay |
+| `3` | `SYNCED` | server → client | *(empty)* — history sent |
+| `4` | `SNAPSHOT` | client → server | Merged full state (compacts the log) |
+| `5` | `RESET` | server → client | *(empty)* — discard & re-sync (after restore) |
 
 ---
 
 ## 🧪 Testing
 
 ```bash
-# Run OT Engine unit tests
-mvn test
-
-# Use the included Postman collection for API testing
-# File: postman_collection.json
-
-# WebSocket testing via wscat
-# File: websocket_test.sh
+mvn test                      # backend unit tests (frame codec + relay orchestration)
 ```
 
-### Testing Real-Time Collaboration
-1. Open **http://localhost:5173** in two browser windows
-2. Register two different accounts
-3. Create a document with the first user
-4. Share it with the second user's email
-5. Open the same document in both windows
-6. Start typing — edits appear instantly in both windows!
+- **API:** import `postman_collection.json`.
+- **WebSocket:** `websocket_test.sh` (proves the handshake authorizes).
+
+### Try real-time collaboration
+1. Open **http://localhost:5173** in two browser windows.
+2. Register two accounts; create a document with the first.
+3. Share it with the second user's email (as EDITOR).
+4. Open the same document in both windows and type — edits, cursors, and selections sync live. Kill the network briefly and watch it reconnect and converge.
 
 ---
 
@@ -206,52 +211,31 @@ mvn test
 
 ```
 Real-Time-Collaborative-Code-Editor/
-├── pom.xml                          # Maven config
+├── pom.xml
+├── .env.example
 ├── src/main/java/com/codeeditor/
-│   ├── RealtimeCodeEditorApplication.java
-│   ├── config/
-│   │   └── RedisConfig.java
-│   ├── controller/
-│   │   ├── AuthController.java
-│   │   ├── DocumentController.java
-│   │   ├── RevisionController.java
-│   │   └── GlobalExceptionHandler.java
-│   ├── engine/
-│   │   ├── OTEngine.java           # Operational Transformation
-│   │   └── Operation.java
-│   ├── model/
-│   │   ├── Document.java
-│   │   ├── User.java
-│   │   ├── Revision.java
-│   │   ├── DocumentUser.java
-│   │   └── Role.java / OpType.java
-│   ├── repository/                  # Spring Data JPA
-│   ├── security/                    # JWT + Spring Security
-│   ├── service/                     # Business logic
-│   ├── redis/                       # Pub/Sub publisher & subscriber
-│   └── websocket/                   # STOMP handlers & DTOs
+│   ├── config/            # OpenApiConfig
+│   ├── controller/        # Auth · Document · Snapshot · GlobalExceptionHandler
+│   ├── dto/               # request/response records
+│   ├── exception/         # NotFound / Forbidden / Conflict
+│   ├── model/             # User · Document · DocumentUser · DocumentUpdate · DocumentSnapshot
+│   ├── redis/             # RedisConfig · CollaborationRelay (cross-node)
+│   ├── repository/        # Spring Data JPA
+│   ├── security/          # JWT + Spring Security
+│   ├── service/           # Auth · Document · Collaboration · Snapshot
+│   └── websocket/         # YjsWebSocketConfig · handler · handshake · registry · protocol
 ├── src/main/resources/
 │   ├── application.properties
-│   └── schema.sql
-├── src/test/                        # Unit tests
-├── realtime-editor-frontend/        # React frontend
-│   ├── src/
-│   │   ├── components/
-│   │   │   └── CollaborativeEditor.jsx
-│   │   ├── hooks/
-│   │   │   └── useWebSocket.js
-│   │   ├── pages/
-│   │   │   ├── Login.jsx
-│   │   │   ├── Register.jsx
-│   │   │   ├── Dashboard.jsx
-│   │   │   └── EditorPage.jsx
-│   │   ├── store/
-│   │   │   ├── authStore.js
-│   │   │   └── editorStore.js
-│   │   └── lib/
-│   │       └── api.js
-│   ├── package.json
-│   └── vite.config.js
+│   └── schema.sql         # reference only (Hibernate manages the schema)
+├── src/test/              # FramesTest · CollaborationServiceTest
+├── realtime-editor-frontend/
+│   ├── .env.example
+│   └── src/
+│       ├── components/CollaborativeEditor.jsx
+│       ├── hooks/useCollaboration.js
+│       ├── lib/           # collab.js (provider) · monacoSetup.js · colors.js · bytes.js · api.js
+│       ├── pages/         # Login · Register · Dashboard · EditorPage
+│       └── store/         # authStore · editorStore
 ├── postman_collection.json
 ├── websocket_test.sh
 └── README.md
@@ -261,9 +245,7 @@ Real-Time-Collaborative-Code-Editor/
 
 ## 📄 License
 
-This project is open-source and available under the [MIT License](LICENSE).
-
----
+MIT License.
 
 ## 🙋 Author
 

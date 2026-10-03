@@ -47,7 +47,7 @@ export default function Dashboard() {
     try {
       const resp = await api.post('/documents', newDocData);
       navigate(`/d/${resp.data.id}`);
-    } catch (err) {
+    } catch {
       alert('Failed to create document');
     } finally {
       setIsCreating(false);
@@ -152,9 +152,9 @@ export default function Dashboard() {
                 </div>
 
                 <div className="flex items-center justify-between pt-4 border-t border-slate-700/50">
-                  <span className="text-[10px] text-slate-500 flex items-center gap-1">
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-500" /> 
-                    Public Link
+                  <span className="text-[10px] text-slate-500 flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                    {doc.role === 'OWNER' ? 'Owner' : doc.role === 'EDITOR' ? 'Editor' : 'Viewer'}
                   </span>
                   <ChevronRight size={14} className="text-slate-600 group-hover:translate-x-1 transition-transform" />
                 </div>

@@ -1,179 +1,98 @@
-import React, { useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
-import useWebSocket from '../hooks/useWebSocket';
-import useEditorStore from '../store/editorStore';
+import { MonacoBinding } from 'y-monaco';
 
-const CollaborativeEditor = ({ docId, initialContent, language }) => {
-  const monacoRef = useRef(null);
+/**
+ * A Monaco editor bound to a shared Yjs text. y-monaco keeps the editor model
+ * and the CRDT in lock-step and renders every remote user's cursor and
+ * selection from the awareness state — no manual operation handling required.
+ *
+ * @param {object}   props
+ * @param {import('yjs').Text}                 props.text        shared Y.Text
+ * @param {import('y-protocols/awareness').Awareness} props.awareness
+ * @param {object}   props.provider   CollabProvider (for the initial "synced" event)
+ * @param {string}   props.language
+ * @param {boolean}  props.readOnly
+ * @param {string}   props.initialContent  legacy plain text to seed an empty doc
+ * @param {(text: string) => void} props.onMirror  called (debounced) with plain text
+ */
+export default function CollaborativeEditor({
+  text,
+  awareness,
+  provider,
+  language,
+  readOnly = false,
+  initialContent = '',
+  onMirror,
+}) {
   const editorRef = useRef(null);
-  const isLocalChange = useRef(false);
-  const decorationIds = useRef([]);
-  
-  const { sendOperation, sendCursorMove } = useWebSocket(docId);
-  const { 
-    document: docState, 
-    remoteCursors,
-    handleOperationApplied // This is useful if we want to trigger manually, but we'll use a listener
-  } = useEditorStore();
+  const bindingRef = useRef(null);
+  const [mounted, setMounted] = useState(false);
 
-  const handleEditorDidMount = (editor, monaco) => {
+  const handleMount = (editor) => {
     editorRef.current = editor;
-    monacoRef.current = monaco;
-
-    if (initialContent) {
-      editor.setValue(initialContent);
-    }
-
-    editor.onDidChangeModelContent((event) => {
-      if (isLocalChange.current) return;
-
-      event.changes.forEach((change) => {
-        const { rangeOffset, rangeLength, text } = change;
-        
-        if (text.length > 0 && rangeLength === 0) {
-          // INSERT
-          if (text.length === 1) {
-            sendOperation({
-              type: 'INSERT',
-              position: rangeOffset,
-              character: text,
-              revision: docState?.version || 0
-            });
-          } else {
-            for(let i=0; i<text.length; i++) {
-              sendOperation({
-                type: 'INSERT',
-                position: rangeOffset + i,
-                character: text[i],
-                revision: docState?.version || 0
-              });
-            }
-          }
-        } else if (text.length === 0 && rangeLength > 0) {
-          // DELETE
-          for(let i=0; i<rangeLength; i++) {
-            sendOperation({
-              type: 'DELETE',
-              position: rangeOffset,
-              revision: docState?.version || 0
-            });
-          }
-        }
-      });
-    });
-
-    editor.onDidChangeCursorPosition((e) => {
-      const position = editor.getModel().getOffsetAt(e.position);
-      sendCursorMove(position);
-    });
+    setMounted(true);
   };
 
-  // Listen for remote operations in store
+  // Bind the editor model to the Yjs text once both are ready.
   useEffect(() => {
-    if (!editorRef.current || !monacoRef.current) return;
+    if (!mounted || !text || !awareness || !editorRef.current) return undefined;
+    const model = editorRef.current.getModel();
+    if (!model) return undefined;
 
-    const unsubscribe = useEditorStore.subscribe(
-      (state) => state.lastRemoteOp,
-      (op) => {
-        if (!op || !editorRef.current) return;
-        
-        // Skip ops from self (backend broadcasts all, but let's be safe)
-        // Note: We need the current user ID to truly distinguish
-        
-        const editor = editorRef.current;
-        const model = editor.getModel();
-        const monaco = monacoRef.current;
+    const binding = new MonacoBinding(text, model, new Set([editorRef.current]), awareness);
+    bindingRef.current = binding;
+    return () => {
+      binding.destroy();
+      bindingRef.current = null;
+    };
+  }, [mounted, text, awareness]);
 
-        isLocalChange.current = true;
-        
-        const pos = model.getPositionAt(op.position);
-        
-        if (op.type === 'INSERT') {
-          model.pushEditOperations(
-            [],
-            [{
-              range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column),
-              text: op.character,
-              forceMoveMarkers: true
-            }],
-            () => null
-          );
-        } else if (op.type === 'DELETE') {
-          const endPos = model.getPositionAt(op.position + 1);
-          model.pushEditOperations(
-            [],
-            [{
-              range: new monaco.Range(pos.lineNumber, pos.column, endPos.lineNumber, endPos.column),
-              text: null,
-              forceMoveMarkers: true
-            }],
-            () => null
-          );
-        }
-
-        isLocalChange.current = false;
-      }
-    );
-
-    return () => unsubscribe();
-  }, []);
-
-  // Sync Remote Cursors
+  // Seed an empty document with legacy plain-text content, exactly once.
   useEffect(() => {
-    if (!editorRef.current || !monacoRef.current) return;
-    
-    const editor = editorRef.current;
-    const monaco = monacoRef.current;
-    const model = editor.getModel();
+    if (!text || readOnly || !initialContent) return undefined;
+    const doc = text.doc;
 
-    const newDecorations = Object.values(remoteCursors).map(cursor => {
-      const pos = model.getPositionAt(cursor.position);
-      return {
-        range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column),
-        options: {
-          className: `remote-cursor`,
-          beforeContentClassName: `remote-cursor-line`,
-          hoverMessage: { value: cursor.userName || 'User' },
-          stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges
-        }
-      };
-    });
+    const seed = () => {
+      if (text.length > 0) return;
+      const meta = doc.getMap('meta');
+      if (meta.get('seeded')) return;
+      doc.transact(() => {
+        meta.set('seeded', true);
+        text.insert(0, initialContent);
+      });
+    };
 
-    // We can't easily set dynamic CSS colors per user via className without injecting styles
-    // A better way is to provide a unique class for each color or use a style tag
-    decorationIds.current = editor.deltaDecorations(decorationIds.current, newDecorations);
+    if (provider?.synced) seed();
+    return provider?.on('synced', seed);
+  }, [text, provider, readOnly, initialContent]);
 
-  }, [remoteCursors]);
+  // Mirror plain text back to the server (debounced) for previews/search + compaction.
+  // Only our own edits trigger this, so N clients don't all write the same text.
+  useEffect(() => {
+    if (!text || readOnly || !onMirror) return undefined;
+    let timer = null;
+    const observer = (event) => {
+      if (!event.transaction.local) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => onMirror(text.toString()), 1500);
+    };
+    text.observe(observer);
+    return () => {
+      clearTimeout(timer);
+      text.unobserve(observer);
+    };
+  }, [text, readOnly, onMirror]);
 
   return (
     <div className="h-full w-full relative">
-      <style>{`
-        .remote-cursor-line {
-          border-left: 2px solid #3b82f6;
-          height: 100%;
-          margin-left: -1px;
-        }
-        .remote-cursor:after {
-          content: attr(data-username);
-          position: absolute;
-          top: -14px;
-          left: 0;
-          font-size: 10px;
-          padding: 1px 4px;
-          background: #3b82f6;
-          color: white;
-          border-radius: 2px;
-          white-space: nowrap;
-          pointer-events: none;
-        }
-      `}</style>
       <Editor
         height="100%"
-        defaultLanguage={language || 'javascript'}
-        defaultValue={initialContent}
+        language={language || 'plaintext'}
         theme="vs-dark"
-        onMount={handleEditorDidMount}
+        onMount={handleMount}
         options={{
+          readOnly,
           minimap: { enabled: true },
           fontSize: 14,
           fontFamily: 'JetBrains Mono, Menlo, Monaco, Courier New, monospace',
@@ -183,14 +102,9 @@ const CollaborativeEditor = ({ docId, initialContent, language }) => {
           cursorBlinking: 'smooth',
           lineNumbers: 'on',
           renderLineHighlight: 'all',
-          scrollbar: {
-            verticalScrollbarSize: 8,
-            horizontalScrollbarSize: 8
-          }
+          scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
         }}
       />
     </div>
   );
-};
-
-export default CollaborativeEditor;
+}

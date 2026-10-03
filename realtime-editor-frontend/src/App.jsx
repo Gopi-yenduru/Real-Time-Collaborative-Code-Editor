@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import useAuthStore from './store/authStore';
 import Login from './pages/Login';
@@ -29,6 +29,12 @@ const PublicRoute = ({ children }) => {
 };
 
 function App() {
+  const fetchMe = useAuthStore((s) => s.fetchMe);
+
+  useEffect(() => {
+    fetchMe();
+  }, [fetchMe]);
+
   return (
     <BrowserRouter>
       <div className="min-h-screen relative overflow-hidden text-slate-200">

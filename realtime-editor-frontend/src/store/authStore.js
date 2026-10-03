@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import api from '../lib/api';
 
-const useAuthStore = create((set) => ({
+const useAuthStore = create((set, get) => ({
   user: null,
   token: localStorage.getItem('token') || null,
   isAuthenticated: !!localStorage.getItem('token'),
@@ -11,23 +11,19 @@ const useAuthStore = create((set) => ({
   login: async (username, password) => {
     set({ isLoading: true, error: null });
     try {
-      const response = await api.post('/auth/login', { username, password });
-      const { token } = response.data;
-      localStorage.setItem('token', token);
-      
-      // We don't get full user details from login in this backend, 
-      // but we know they are authenticated.
-      set({ 
-        token, 
-        isAuthenticated: true, 
-        user: { username },
-        isLoading: false 
+      const { data } = await api.post('/auth/login', { username, password });
+      localStorage.setItem('token', data.token);
+      set({
+        token: data.token,
+        user: data.user,
+        isAuthenticated: true,
+        isLoading: false,
       });
       return true;
     } catch (err) {
-      set({ 
-        error: err.response?.data?.message || 'Login failed', 
-        isLoading: false 
+      set({
+        error: err.response?.data?.message || 'Login failed',
+        isLoading: false,
       });
       return false;
     }
@@ -40,11 +36,22 @@ const useAuthStore = create((set) => ({
       set({ isLoading: false });
       return true;
     } catch (err) {
-      set({ 
-        error: err.response?.data?.message || 'Registration failed', 
-        isLoading: false 
+      set({
+        error: err.response?.data?.message || 'Registration failed',
+        isLoading: false,
       });
       return false;
+    }
+  },
+
+  /** Rehydrate the current user after a page reload (token persists, state doesn't). */
+  fetchMe: async () => {
+    if (!get().token || get().user) return;
+    try {
+      const { data } = await api.get('/auth/me');
+      set({ user: data });
+    } catch {
+      // token invalid/expired — the 401 interceptor will log us out
     }
   },
 
@@ -53,11 +60,10 @@ const useAuthStore = create((set) => ({
     set({ user: null, token: null, isAuthenticated: false });
   },
 
-  // Clear errors when navigating
-  clearError: () => set({ error: null })
+  clearError: () => set({ error: null }),
 }));
 
-// Listen for global unauthorized events to automatically logout
+// Global 401 handler (dispatched by the axios interceptor) forces a logout.
 if (typeof window !== 'undefined') {
   window.addEventListener('auth:unauthorized', () => {
     useAuthStore.getState().logout();
