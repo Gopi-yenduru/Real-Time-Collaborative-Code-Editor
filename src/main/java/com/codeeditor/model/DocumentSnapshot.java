@@ -3,6 +3,8 @@ package com.codeeditor.model;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 
 import java.time.Instant;
 
@@ -30,10 +32,12 @@ public class DocumentSnapshot {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "document_id", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private Document document;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "author_id")
+    @OnDelete(action = OnDeleteAction.SET_NULL)
     private User author;
 
     @Column(length = 120)

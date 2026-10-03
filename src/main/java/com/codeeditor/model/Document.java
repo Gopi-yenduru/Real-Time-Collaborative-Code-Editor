@@ -3,6 +3,8 @@ package com.codeeditor.model;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.annotations.UuidGenerator;
 
@@ -32,6 +34,7 @@ public class Document {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "owner_id", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private User owner;
 
     @Column(length = 50)

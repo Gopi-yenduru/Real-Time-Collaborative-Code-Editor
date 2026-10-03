@@ -5,6 +5,8 @@ import com.codeeditor.exception.ForbiddenException;
 import com.codeeditor.exception.NotFoundException;
 import com.codeeditor.model.*;
 import com.codeeditor.repository.DocumentRepository;
+import com.codeeditor.repository.DocumentSnapshotRepository;
+import com.codeeditor.repository.DocumentUpdateRepository;
 import com.codeeditor.repository.DocumentUserRepository;
 import com.codeeditor.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +23,8 @@ public class DocumentService {
 
     private final DocumentRepository documentRepository;
     private final DocumentUserRepository documentUserRepository;
+    private final DocumentUpdateRepository documentUpdateRepository;
+    private final DocumentSnapshotRepository documentSnapshotRepository;
     private final UserRepository userRepository;
 
     // ----- Reads -------------------------------------------------------------
@@ -125,12 +129,26 @@ public class DocumentService {
         documentRepository.save(document);
     }
 
+    /**
+     * Deletes a document along with everything hanging off it: the CRDT update
+     * log, version-history snapshots, and membership rows.
+     * <p>
+     * The children are removed explicitly rather than left to database cascades.
+     * {@code document_updates} has no foreign key at all (the CRDT log is
+     * deliberately decoupled from the entity model), and {@code ddl-auto=update}
+     * never rewrites a constraint that already exists — so a schema created before
+     * the cascades were declared would still reject the delete. Doing it here
+     * works on any schema.
+     */
     @Transactional
     public void delete(String documentId, Long userId) {
         Document document = getEntity(documentId);
         if (!document.getOwner().getId().equals(userId)) {
             throw new ForbiddenException("Only the owner can delete this document");
         }
+        documentSnapshotRepository.deleteByDocumentId(documentId);
+        documentUpdateRepository.deleteByDocumentId(documentId);
+        documentUserRepository.deleteByDocumentId(documentId);
         documentRepository.delete(document);
     }
 }

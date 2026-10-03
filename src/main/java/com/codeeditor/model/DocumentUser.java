@@ -3,6 +3,8 @@ package com.codeeditor.model;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 
 import java.time.LocalDateTime;
 
@@ -21,11 +23,13 @@ public class DocumentUser {
     @ManyToOne(fetch = FetchType.LAZY)
     @MapsId("documentId")
     @JoinColumn(name = "document_id")
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private Document document;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @MapsId("userId")
     @JoinColumn(name = "user_id")
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private User user;
 
     @Enumerated(EnumType.STRING)
