@@ -75,7 +75,7 @@ A full-stack **real-time collaborative code editor** built with **Spring Boot 3*
 |---|---|
 | Backend language | Java 17 (builds on JDK 17–24) |
 | Backend framework | Spring Boot 3.5, Spring Security, Spring WebSocket |
-| Database | MySQL 8 (JPA / Hibernate) |
+| Database | MySQL 8 (JPA / Hibernate, Flyway migrations) |
 | Cross-node relay | Redis 6+ |
 | Auth | JWT (jjwt 0.13.0) |
 | API docs | springdoc-openapi (Swagger UI) |
@@ -170,6 +170,26 @@ Frontend: **http://localhost:5173**
 
 ---
 
+## 🗄️ Database schema
+
+The schema lives in `src/main/resources/db/migration` and is applied by **Flyway**
+at startup. Hibernate runs with `ddl-auto=validate`, so it checks that the entity
+model matches what the migrations produced and never alters anything itself.
+
+- `V1__baseline_schema.sql` — the full schema, as a fresh database gets it.
+- `V2__align_pre_flyway_schema.sql` — brings databases created before Flyway in
+  line with V1 (drops the dead `revisions` table from the OT era and repairs the
+  `document_snapshots` foreign keys, which had been created with `NO ACTION`).
+
+**Upgrading an existing database** needs no manual step. Flyway finds tables but
+no history, stamps the database at V1 without re-running it
+(`baseline-on-migrate`), and applies V2 onward. Your data is untouched.
+
+To add a change, drop a new `V3__*.sql` beside these — never edit an applied
+migration, since Flyway checksums them.
+
+---
+
 ## 📡 API & WebSocket
 
 ### REST
@@ -243,8 +263,8 @@ Real-Time-Collaborative-Code-Editor/
 │   └── websocket/         # YjsWebSocketConfig · handler · handshake · registry · protocol
 ├── src/main/resources/
 │   ├── application.properties
-│   └── schema.sql         # reference only (Hibernate manages the schema)
-├── src/test/              # FramesTest · CollaborationServiceTest
+│   └── db/migration/      # Flyway migrations (the schema source of truth)
+├── src/test/              # frame codec · relay · document service · auth boundary
 ├── realtime-editor-frontend/
 │   ├── .env.example
 │   └── src/
